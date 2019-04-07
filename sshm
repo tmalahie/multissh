@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+
+import sys, termios, tty, os, signal, time, gtk, math
+
+
+# Retrieve command-line arguments
+clargs = sys.argv
+if len(clargs) < 2:
+	print("Usage: sshm user@host1,user@host2 [-args]")
+	exit()
+print("Loading, please wait...")
+hosts = clargs[1].split(",")
+sshargs = " ".join(clargs[2:])
+sshcmds = []
+for host in hosts:
+	sshcmds.append("ssh "+host+" "+sshargs)
+
+# Callback called each time a key is pressed
+def getch():
+	fd = sys.stdin.fileno()
+	old_settings = termios.tcgetattr(fd)
+	try:
+		tty.setraw(sys.stdin.fileno())
+		ch = sys.stdin.read(1)
+ 
+	finally:
+		termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+	return ch
+
+# Array of all sub-terminal process ids
+pids = []
+# Array of all sub-terminal window ids
+wids = []
+# Array of all terminal window ids, including the one launching the program
+all_wids = []
+n = len(sshcmds)
+N = n+1
+mywid = os.popen("xdotool getactivewindow").read().strip()
+all_wids.append(mywid)
+
+# The name of the terminal application (konsole, gnome-terminal, xterm...)
+shell_app = os.popen('ps -o comm= -p "$(($(ps -o ppid= -p "$(($(ps -o sid= -p "$$")))")))"').read().strip()
+
+# Launch consoles and populate wids, pids
+for i in xrange(0,n):
+	pids.append(os.popen(shell_app +" -e '"+ sshcmds[i] +"' > /dev/null & echo $!").read().strip())
+time.sleep(1)
+for i in xrange(0,n):
+	wid = os.popen("./getwindidbypid "+ pids[i]).read().strip()
+	wids.append(wid)
+	all_wids.append(wid)
+os.system("xdotool windowactivate --sync "+mywid)
+
+# Change console positions to occupy the whole screen
+W = gtk.gdk.screen_width()
+H = gtk.gdk.screen_height()
+offset = 5
+L = math.ceil(math.sqrt(N))
+w = W/L
+h = H/L
+for i in xrange(0,N):
+	x = round(w*(i%L))
+	y = round(h*(i//L))
+	os.system("wmctrl -i -r %s -e 0,%d,%d,%d,%d" % (all_wids[i],x,y,w-offset,h-offset))
+
+# Return xdotool key name from char
+def get_key_name(char):
+	keycode = ord(char)
+	if keycode >= 1 and keycode <= 26:
+		return "ctrl+"+chr(keycode+96)
+	if keycode == 127:
+		return "BackSpace"
+	return None
+
+# Listen for user input
+print("Ready to type. Ctrl+D to stop")
+while True:
+	char = getch()
+	if char == "\x04": # If Ctrl+D, stop everything
+		print("Stopping processes...")
+		already_exited = True
+		for pid in pids:
+			try:
+				os.kill(int(pid), signal.SIGTERM)
+				already_exited = False
+			except:
+				pass
+		if already_exited:
+			print("Already stopped")
+			exit(0)
+		time.sleep(1)
+		for pid in pids:
+			try:
+				os.kill(int(pid), signal.SIGKILL)
+			except:
+				pass
+		exit(0)
+	chr_name = get_key_name(char)
+	if chr_name is not None:
+		for wid in wids:
+			os.system("xdotool key --window "+wid+" '"+chr_name+"'")
+	else:
+		for wid in wids:
+			os.system("xdotool type --window "+wid+" '"+char+"'")
