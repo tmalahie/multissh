@@ -46,7 +46,7 @@ for i in xrange(0,n):
 	pids.append(os.popen(shell_app +" -e '"+ sshcmds[i] +"' > /dev/null & echo $!").read().strip())
 time.sleep(1)
 for i in xrange(0,n):
-	wid = os.popen("./getwindidbypid "+ pids[i]).read().strip()
+	wid = os.popen("xdotool search --pid "+ pids[i]).read().strip()
 	wids.append(wid)
 	all_wids.append(wid)
 os.system("xdotool windowactivate --sync "+mywid)
